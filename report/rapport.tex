@@ -1,0 +1,486 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{caption}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+
+% --- Couleurs ---
+\definecolor{bleu}{HTML}{1F4E79}
+\definecolor{bleuc}{HTML}{2563EB}
+\definecolor{grisf}{HTML}{F2F4F8}
+\definecolor{codegris}{HTML}{F6F8FA}
+
+% --- Titres de sections ---
+\titleformat{\section}{\Large\bfseries\color{bleu}}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\large\bfseries\color{bleu}}{\thesubsection}{0.5em}{}
+
+% --- En-tête / pied ---
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small\color{bleu}Snake évolutif sur grille dynamique}
+\rhead{\small\color{bleu}M2442 -- Jeux Vidéo IA}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% --- Style code ---
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codegris},
+  frame=single,
+  rulecolor=\color{gray!40},
+  breaklines=true,
+  showstringspaces=false,
+  keywordstyle=\color{bleuc}\bfseries,
+  commentstyle=\color{gray},
+  language=Python,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  xleftmargin=2em,
+  framexleftmargin=1.5em,
+  literate=%
+    {é}{{\'e}}1 {è}{{\`e}}1 {ê}{{\^e}}1 {ë}{{\"e}}1
+    {à}{{\`a}}1 {â}{{\^a}}1 {î}{{\^i}}1 {ï}{{\"i}}1
+    {ô}{{\^o}}1 {ù}{{\`u}}1 {û}{{\^u}}1 {ç}{{\c c}}1
+    {É}{{\'E}}1 {È}{{\`E}}1 {À}{{\`A}}1 {Ç}{{\c C}}1
+    {’}{{'}}1 {œ}{{\oe}}1,
+}
+
+\begin{document}
+
+% ======================= PAGE DE GARDE ======================= %
+\begin{titlepage}
+\centering
+\vspace*{1.5cm}
+{\color{bleu}\rule{\linewidth}{1.2pt}}\\[0.5cm]
+{\Huge\bfseries\color{bleu} Snake évolutif sur grille dynamique\par}
+\vspace{0.4cm}
+{\Large Conception d'un agent neuroévolutionnaire\\ dans un environnement Gymnasium personnalisé\par}
+\vspace{0.3cm}
+{\color{bleu}\rule{\linewidth}{1.2pt}}\\[1.2cm]
+
+{\large\textbf{Projet final --- Sujet 2}\par}
+{\large Élément de module : M2442 « Jeux Vidéo IA »\par}
+\vspace{1.5cm}
+
+\begin{tabular}{c}
+\Large\textbf{Membres de l'équipe}\\[0.4cm]
+\large Benaqqa Moubarak\\[0.2cm]
+\large Bensmina Anass\\
+\end{tabular}
+
+\vfill
+{\large École Nationale Supérieure d'Informatique et d'Analyse des Systèmes (ENSIAS)\par}
+\vspace{0.4cm}
+{\large \today\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ======================= 1. INTRODUCTION ======================= %
+\section{Introduction}
+
+Ce rapport présente la conception, l'implémentation et l'évaluation expérimentale
+d'un agent évolutionnaire jouant à une variante du jeu \emph{Snake} dans un
+environnement à difficulté variable. Le travail s'inscrit dans le cadre du projet
+final du module \emph{M2442 -- Jeux Vidéo IA} et correspond au \textbf{Sujet~2 :
+Snake évolutif sur grille dynamique}, dont l'énoncé demande de « créer un mini-jeu
+de type Snake avec nourriture, obstacles et conditions variables selon les
+épisodes », au moyen d'un « environnement Gymnasium personnalisé » et d'un
+« agent évolutionnaire maximisant survie et score ».
+
+\subsection{Contexte et motivation}
+Les algorithmes génétiques (AG) constituent une famille de méthodes
+d'optimisation inspirées de l'évolution naturelle. Contrairement à
+l'apprentissage par renforcement classique (qui repose sur le gradient et la
+rétropropagation temporelle de la récompense), un AG explore l'espace des
+politiques par sélection, croisement et mutation, sans calcul de gradient. Cette
+approche, dite \emph{neuroévolution} lorsqu'on optimise les poids d'un réseau de
+neurones, est particulièrement adaptée aux environnements de jeu où la fonction
+de récompense est éparse, bruitée ou non différentiable.
+
+Le jeu Snake offre un terrain d'expérimentation idéal : règles simples, espace
+d'états combinatoire, et tension naturelle entre deux objectifs (manger pour
+augmenter le score, mais survivre en évitant murs, obstacles et propre corps).
+
+\subsection{Objectifs}
+\begin{itemize}[nosep]
+  \item Concevoir un environnement Gymnasium personnalisé respectant explicitement
+        l'API (observations, actions, récompense, fin d'épisode).
+  \item Introduire une \textbf{dynamique inter-épisodes} : densité d'obstacles et
+        budget de survie variables d'un épisode à l'autre.
+  \item Implémenter un agent neuroévolutionnaire (réseau de neurones optimisé par AG)
+        et définir une fonction de fitness pertinente.
+  \item Comparer cet agent à au moins une \textbf{baseline} sur un protocole
+        expérimental reproductible.
+  \item Analyser de manière critique les performances, les limites et les pistes
+        d'amélioration.
+\end{itemize}
+
+\subsection{Organisation du rapport}
+La section~2 décrit le problème et l'environnement. La section~3 détaille l'agent
+et l'algorithme génétique. La section~4 expose le protocole expérimental. La
+section~5 présente et discute les résultats. La section~6 conclut.
+
+% ======================= 2. PROBLEME ET ENVIRONNEMENT ======================= %
+\section{Problème et environnement}
+
+\subsection{Description du jeu}
+Le serpent évolue sur une grille carrée de $N \times N$ cases ($N=12$ dans nos
+expériences). Il se déplace case par case dans la direction courante. À chaque
+pas de temps, l'agent choisit une action ; le serpent avance, et :
+\begin{itemize}[nosep]
+  \item s'il atteint la \textbf{nourriture}, il grandit d'une case, le score
+        augmente de~1, et une nouvelle nourriture apparaît sur une case libre ;
+  \item s'il heurte un \textbf{mur}, un \textbf{obstacle} ou son \textbf{propre
+        corps}, l'épisode se termine (collision) ;
+  \item s'il ne mange pas pendant un nombre de pas supérieur au \textbf{budget de
+        faim}, l'épisode se termine (famine).
+\end{itemize}
+
+\subsection{Grille dynamique}
+La spécificité du Sujet~2 est que les conditions varient \emph{selon les
+épisodes}. À chaque \texttt{reset}, l'environnement tire aléatoirement :
+\begin{itemize}[nosep]
+  \item le nombre d'obstacles fixes, dans l'intervalle $[3, 10]$ ;
+  \item le budget de faim, à $\pm 20\%$ de sa valeur de base $N^2$.
+\end{itemize}
+Les obstacles sont placés aléatoirement sur la grille (en évitant le corps initial
+du serpent et la zone immédiatement devant sa tête). Cette variabilité empêche
+l'agent de mémoriser une carte fixe et l'oblige à apprendre une \emph{politique
+générale} robuste à la configuration.
+
+\subsection{Espace d'actions}
+L'espace d'actions est \textbf{discret} et contient 3~actions \emph{relatives}
+au serpent : aller \emph{tout droit}, \emph{tourner à droite}, \emph{tourner à
+gauche}. Ce choix, plus simple qu'un espace absolu à 4~directions, élimine
+mécaniquement les demi-tours suicidaires et réduit la dimension du problème,
+conformément au cadrage « espace d'actions discret simple » imposé par l'énoncé.
+
+\subsection{Espace d'observations}
+L'observation est un vecteur compact de \textbf{11~composantes} à valeurs dans
+$[-1,1]$, adapté à un contrôleur de type réseau de neurones :
+\begin{center}
+\begin{tabular}{cl}
+\toprule
+\textbf{Indices} & \textbf{Signification} \\
+\midrule
+0--2  & Danger immédiat (tout droit / droite / gauche) \\
+3--6  & Direction courante (encodage \emph{one-hot} : haut/droite/bas/gauche) \\
+7--10 & Position relative de la nourriture (gauche/droite/haut/bas) \\
+\bottomrule
+\end{tabular}
+\end{center}
+Cette représentation \emph{égocentrique} (« qu'est-ce qui est dangereux autour de
+moi, où est la nourriture ») est volontairement locale : elle généralise bien et
+maintient une dimension d'entrée faible.
+
+\subsection{Fonction de récompense}
+La récompense par pas combine un objectif principal et un \emph{shaping} léger :
+\[
+r =
+\begin{cases}
++1.0 & \text{si la nourriture est mangée}, \\
+-1.0 & \text{en cas de collision (mort)}, \\
+-0.5 & \text{en cas de famine}, \\
++0.1 & \text{si l'agent se rapproche de la nourriture}, \\
+-0.15 & \text{s'il s'en éloigne}, \\
+-0.01 & \text{coût de temps par pas.}
+\end{cases}
+\]
+Le \emph{shaping} de distance accélère l'évolution en fournissant un signal dense,
+tandis que le faible coût de temps décourage les comportements de bouclage
+stérile. La victoire (grille entièrement remplie) octroie un bonus de $+5$.
+
+\subsection{Conditions de fin d'épisode}
+Un épisode se termine (\texttt{terminated}) en cas de collision, de famine ou de
+victoire. Une troncature (\texttt{truncated}) intervient au-delà d'un nombre
+maximal de pas fixé par le protocole. L'environnement respecte ainsi la
+signature Gymnasium \texttt{(obs, reward, terminated, truncated, info)}.
+
+% ======================= 3. AGENT ET ALGORITHME GENETIQUE ======================= %
+\section{Agent et algorithme génétique}
+
+\subsection{Politique : réseau de neurones}
+La politique de l'agent est un \textbf{perceptron multicouche} (MLP) :
+\[
+\text{obs}_{(11)} \xrightarrow{W_1, b_1} \tanh \xrightarrow{(16)} \xrightarrow{W_2, b_2} \text{logits}_{(3)} \xrightarrow{\arg\max} \text{action}.
+\]
+L'entrée est le vecteur d'observation (11), suivie d'une couche cachée de
+16~neurones à activation $\tanh$, puis d'une couche de sortie produisant un score
+par action. L'action retenue est l'\texttt{argmax} (politique \emph{déterministe},
+ce qui garantit la reproductibilité de l'évaluation).
+
+\subsection{Génome}
+Le \textbf{génome} d'un individu est le vecteur aplati de tous les paramètres du
+réseau :
+\[
+\dim(\text{génome}) = \underbrace{11\times16}_{W_1} + \underbrace{16}_{b_1}
++ \underbrace{16\times3}_{W_2} + \underbrace{3}_{b_2} = \mathbf{243}.
+\]
+Évoluer ces 243~réels revient à chercher la meilleure politique dans un espace
+continu de dimension 243.
+
+\subsection{Fonction de fitness}
+La fitness d'un génome est évaluée sur plusieurs épisodes (graines fixées au sein
+d'une même génération, pour une comparaison équitable). En notant $\bar s$ le
+score moyen (nourriture mangée), $\bar t$ le nombre de pas moyen et $\bar R$ la
+récompense cumulée moyenne :
+\[
+\text{fitness} = 100\,\bar s + 0.5\,\bar t + \bar R.
+\]
+La nourriture domine le critère ($\times 100$), conformément à l'objectif
+« maximiser score et survie » : la survie ($\bar t$) n'intervient que comme bonus
+secondaire, afin d'éviter de récompenser un serpent qui survit sans jamais manger.
+
+\subsection{Opérateurs génétiques}
+\begin{description}[leftmargin=1.5cm,style=nextline,nosep]
+  \item[Sélection] par \textbf{tournoi} de taille~5 : on tire 5~individus au hasard
+        et on retient le meilleur. Cela maintient une pression de sélection
+        modérée tout en préservant la diversité.
+  \item[Croisement] \textbf{uniforme} : chaque gène de l'enfant provient
+        aléatoirement de l'un des deux parents (probabilité $0.7$ d'appliquer le
+        croisement, sinon clonage du premier parent).
+  \item[Mutation] \textbf{gaussienne} additive : chaque gène est perturbé avec
+        probabilité $0.1$ par un bruit $\mathcal{N}(0,\sigma^2)$. L'amplitude
+        $\sigma$ décroît linéairement de $0.25$ à $0.10$ au fil des générations
+        (exploration forte au début, affinage en fin).
+  \item[Élitisme] les 12\% meilleurs individus sont copiés tels quels dans la
+        génération suivante, garantissant que la meilleure solution n'est jamais
+        perdue.
+\end{description}
+
+\subsection{Boucle d'évolution}
+\begin{lstlisting}
+for gen in range(n_generations):
+    # 1. Évaluer la fitness de chaque individu (multi-épisodes)
+    fitnesses = [evaluate_genome(ind, ...) for ind in population]
+    # 2. Conserver les meilleurs (élitisme)
+    new_pop = elites(population, fitnesses)
+    # 3. Reproduire jusqu'à remplir la population
+    while len(new_pop) < pop_size:
+        p1, p2 = tournoi(fitnesses), tournoi(fitnesses)
+        enfant = mutation(croisement(p1, p2))
+        new_pop.append(enfant)
+    population = new_pop
+\end{lstlisting}
+
+% ======================= 4. PROTOCOLE EXPERIMENTAL ======================= %
+\section{Protocole expérimental}
+
+\subsection{Hyperparamètres}
+\begin{center}
+\begin{tabular}{ll@{\hspace{2cm}}ll}
+\toprule
+\textbf{Paramètre} & \textbf{Valeur} & \textbf{Paramètre} & \textbf{Valeur} \\
+\midrule
+Taille de grille      & $12\times12$ & Taille de population  & 150 \\
+Obstacles (dynamique) & $[3,10]$     & Nombre de générations & 150 \\
+Couche cachée         & 16 neurones  & Fraction d'élite      & 12\,\% \\
+Taille du génome      & 243          & Taille de tournoi     & 5 \\
+Taux de mutation      & 0.10         & Croisement            & 0.70 \\
+$\sigma$ mutation     & $0.25\to0.10$& Épisodes d'éval./ind. & 6 \\
+Pas max / épisode     & 400          & Graine AG             & 42 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Baselines de comparaison}
+Conformément à l'exigence d'au moins une baseline, nous en utilisons deux :
+\begin{itemize}[nosep]
+  \item \textbf{Agent aléatoire} : choisit une action uniformément au hasard.
+        Borne inférieure de performance.
+  \item \textbf{Agent heuristique} : règle programmée à la main --- parmi les
+        actions sans danger immédiat (lu dans l'observation), choisir celle qui
+        rapproche de la nourriture. Baseline « forte » servant de référence
+        exigeante.
+\end{itemize}
+
+\subsection{Jeux de données et reproductibilité}
+Point méthodologique central : les graines utilisées pour \textbf{évaluer} l'agent
+final sont \emph{disjointes} de celles vues pendant l'\textbf{entraînement}. Les
+épisodes de test correspondent aux graines $[900000, 900199]$, jamais rencontrées
+durant l'évolution. Tous les agents (AG et baselines) sont évalués sur
+\textbf{exactement les mêmes 200~épisodes de test}, ce qui garantit une
+comparaison équitable et reproductible. L'ensemble des graines, hyperparamètres
+et résultats est sauvegardé au format JSON.
+
+\subsection{Indicateurs quantitatifs}
+Pour chaque agent nous reportons : le score moyen et son écart-type, le score
+maximal, la survie moyenne (nombre de pas), et le taux de réussite (proportion
+d'épisodes avec au moins une nourriture mangée). Une étude de \textbf{robustesse}
+mesure en outre le score selon une densité d'obstacles fixée ($0, 4, 8, 12$).
+
+% ======================= 5. RESULTATS ET DISCUSSION ======================= %
+\section{Résultats et discussion}
+
+\subsection{Dynamique de l'évolution}
+La figure~\ref{fig:evo} montre l'évolution de la fitness et du score au fil des
+150~générations. On observe une progression nette : le score du meilleur individu
+passe d'environ $0.3$ à la première génération à des pics dépassant $13$ en fin
+d'évolution, tandis que le score moyen de la population croît de façon régulière
+de $\approx 0$ à $\approx 6$. La meilleure fitness atteinte est de~$1707.7$.
+Le bruit résiduel des courbes provient du renouvellement des graines d'évaluation
+à chaque génération (chaque génération affronte des cartes différentes), ce qui
+constitue une mesure de généralisation plutôt que de surapprentissage.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{fig_evolution.png}
+\caption{Évolution de la fitness (gauche) et du score (droite) au fil des
+générations. Bleu : meilleur individu ; orange : moyenne de la population.}
+\label{fig:evo}
+\end{figure}
+
+\subsection{Comparaison aux baselines}
+Le tableau~\ref{tab:res} et la figure~\ref{fig:comp} résument les performances sur
+les 200~épisodes de test indépendants.
+
+\begin{table}[h]
+\centering
+\caption{Performances sur 200 épisodes de test (grille dynamique, graines
+$[900000,900199]$).}
+\label{tab:res}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Agent} & \textbf{Score moy.} & \textbf{Écart-type} & \textbf{Score max}
+& \textbf{Survie moy.} & \textbf{Taux succès} \\
+\midrule
+Aléatoire           & 0.09  & 0.30 & 2  & 15.4  & 8.5\,\% \\
+AG (neuroévolution) & \textbf{6.30}  & 6.20 & 25 & \textbf{172.8} & 91.5\,\% \\
+Heuristique (réf.)  & 15.97 & 6.96 & 36 & 153.1 & 100\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{fig_comparaison.png}
+\caption{Score moyen (gauche, $\pm$ écart-type) et durée de survie moyenne
+(droite) des trois agents sur le jeu de test.}
+\label{fig:comp}
+\end{figure}
+
+\paragraph{Interprétation.} L'agent neuroévolutionnaire améliore le score moyen
+d'un facteur~$\sim70$ par rapport à l'agent aléatoire ($6.30$ contre $0.09$),
+ce qui démontre sans ambiguïté que l'évolution a découvert une politique
+compétente \emph{à partir de poids aléatoires}, sans aucune connaissance
+programmée du jeu. Fait notable, l'agent AG \textbf{survit en moyenne plus
+longtemps} que l'heuristique ($172.8$ pas contre $153.1$) : il a appris une
+gestion prudente de l'espace. Il atteint un score maximal de~$25$ sur une partie.
+
+En revanche, l'AG reste \emph{en deçà} de l'heuristique en score moyen ($6.30$
+contre $15.97$). Ce résultat est attendu et instructif : l'heuristique bénéficie
+d'une logique d'évitement de danger \emph{codée à la main} et toujours optimale
+localement, que l'AG doit au contraire \emph{découvrir} dans un espace de 243
+paramètres avec un budget limité de 150~générations.
+
+\subsection{Distribution des scores}
+La figure~\ref{fig:dist} compare les distributions de scores. L'AG présente une
+distribution étalée : beaucoup d'épisodes à score faible (parties difficiles,
+forte densité d'obstacles) mais une queue droite atteignant des scores élevés. La
+médiane de l'AG est de~4 contre 16 pour l'heuristique.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.78\linewidth]{fig_distribution.png}
+\caption{Distribution des scores sur les 200 épisodes de test. Les lignes
+pointillées indiquent les moyennes.}
+\label{fig:dist}
+\end{figure}
+
+\subsection{Étude de robustesse}
+La figure~\ref{fig:rob} révèle un résultat éclairant. \textbf{Sur grille sans
+obstacle}, l'AG ($18.93$) rivalise presque avec l'heuristique ($19.85$) : la
+politique apprise de recherche de nourriture est donc excellente. La performance
+de l'AG chute cependant rapidement avec la densité d'obstacles ($9.6$ à 4
+obstacles, $2.5$ à 12), beaucoup plus vite que l'heuristique. L'écart global
+constaté précédemment s'explique donc essentiellement par une \textbf{gestion
+sous-optimale des obstacles}, et non par une mauvaise recherche de nourriture.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.78\linewidth]{fig_robustesse.png}
+\caption{Score moyen selon la densité d'obstacles (grille statique). L'AG égale
+presque l'heuristique sans obstacle mais se dégrade plus vite.}
+\label{fig:rob}
+\end{figure}
+
+\subsection{Limites}
+\begin{itemize}[nosep]
+  \item \textbf{Observation locale} : la perception ne « voit » que le danger
+        immédiat (une case). Le serpent ne peut pas anticiper les pièges à
+        plusieurs cases ni les impasses, ce qui explique sa fragilité face aux
+        obstacles denses et à son propre corps lorsqu'il s'allonge.
+  \item \textbf{Coût d'évaluation} : la fitness étant bruitée (6~épisodes
+        aléatoires), un bon individu peut être sous-évalué par malchance,
+        ralentissant la convergence.
+  \item \textbf{Capacité du réseau} : 16~neurones cachés et 243~paramètres
+        limitent la complexité de la politique apprenable.
+  \item \textbf{Budget évolutif} : 150~générations restent modestes pour la
+        neuroévolution ; les courbes ne sont pas encore saturées.
+\end{itemize}
+
+\subsection{Pistes d'amélioration}
+\begin{itemize}[nosep]
+  \item \textbf{Enrichir l'observation} : ajouter une vision sur plusieurs cases
+        (rayons de distance aux dangers), la longueur du serpent, ou une carte
+        locale, pour permettre l'anticipation.
+  \item \textbf{Réduire le bruit de fitness} : augmenter le nombre d'épisodes
+        d'évaluation ou utiliser des graines communes (CRN, \emph{common random
+        numbers}).
+  \item \textbf{Opérateurs avancés} : mutation auto-adaptative, ou stratégies
+        d'évolution modernes (CMA-ES) qui adaptent la covariance.
+  \item \textbf{Topologie évolutive} (NEAT) : faire évoluer aussi la structure du
+        réseau et non seulement ses poids.
+  \item \textbf{Curriculum} : commencer avec peu d'obstacles puis augmenter
+        progressivement la difficulté.
+\end{itemize}
+
+% ======================= 6. CONCLUSION ======================= %
+\section{Conclusion}
+
+Nous avons conçu, de bout en bout, un environnement Gymnasium personnalisé pour
+une variante \emph{dynamique} du jeu Snake (Sujet~2), puis un agent
+neuroévolutionnaire dont les 243~poids d'un MLP sont optimisés par un algorithme
+génétique complet (sélection par tournoi, croisement uniforme, mutation gaussienne
+à amplitude décroissante, élitisme). Le protocole expérimental, reproductible et
+fondé sur une séparation stricte entre épisodes d'entraînement et de test, montre
+que l'agent évolué apprend une politique nettement supérieure au hasard (score
+moyen $\times 70$) et survit même plus longtemps que la baseline heuristique.
+
+L'analyse critique met en évidence que l'écart résiduel avec l'heuristique provient
+surtout d'une gestion perfectible des obstacles, conséquence directe d'une
+observation purement locale --- un diagnostic confirmé par l'étude de robustesse,
+où l'agent égale presque l'heuristique en l'absence d'obstacle. Ces limites
+ouvrent des pistes d'amélioration concrètes (perception enrichie, réduction du
+bruit de fitness, stratégies d'évolution avancées, curriculum), qui constitueraient
+la suite naturelle de ce travail.
+
+Au-delà des chiffres, ce projet illustre l'intérêt de la neuroévolution comme
+alternative sans gradient pour l'apprentissage de comportements de jeu : à partir
+d'une initialisation purement aléatoire et sans aucune connaissance experte
+injectée, l'évolution fait émerger une stratégie cohérente de recherche de
+nourriture et de survie.
+
+\vspace{1cm}
+\noindent\rule{\linewidth}{0.4pt}\\
+{\footnotesize \textbf{Reproductibilité.} Tout le code (environnement, agents,
+algorithme génétique, scripts d'entraînement et de figures) est fourni dans
+l'archive du projet. L'expérience complète se relance par
+\texttt{python experiments/train.py} puis \texttt{python experiments/make\_figures.py}.}
+
+\end{document}
