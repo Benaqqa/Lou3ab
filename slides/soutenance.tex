@@ -127,7 +127,7 @@
     + \underbrace{0.5\,\bar{t}}_{\text{survie}}
     + \underbrace{\bar{R}}_{\text{récompense}}
     \]
-    Évaluée sur plusieurs épisodes pour mesurer la \textbf{généralisation}.
+    Évaluée sur \textbf{6 épisodes} pour mesurer la \textbf{généralisation}.
   \end{block}
 \end{frame}
 
@@ -150,7 +150,8 @@
         \\[0.2cm]
         \normalsize
         Population : 150 individus\\
-        Générations : 150
+        Générations : 150\\
+        \textbf{$\approx 400$ s sur CPU} (sans GPU)
       \end{block}
     \end{column}
   \end{columns}
@@ -199,7 +200,7 @@
           \textbf{Agent} & \textbf{Score} & \textbf{Survie} \\
           \midrule
           Aléatoire   & 0.09  & 15.4 \\
-          \textbf{AG} & \textbf{6.30}  & \textbf{172.8} \\
+          \textbf{AG} & \textbf{6.29}  & \textbf{172.8} \\
           Heuristique & 15.97 & 153.1 \\
           \bottomrule
         \end{tabular}

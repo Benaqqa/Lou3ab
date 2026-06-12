@@ -14,6 +14,8 @@
 \usepackage{fancyhdr}
 \usepackage{caption}
 \usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
 \usepackage[hidelinks]{hyperref}
 \usepackage{titlesec}
 
@@ -131,12 +133,41 @@ augmenter le score, mais survivre en évitant murs, obstacles et propre corps).
 \end{itemize}
 
 \subsection{Organisation du rapport}
-La section~2 décrit le problème et l'environnement. La section~3 détaille l'agent
-et l'algorithme génétique. La section~4 expose le protocole expérimental. La
-section~5 présente et discute les résultats. La section~6 conclut.
+La section~2, la plus développée, modélise le jeu \emph{comme système interactif}
+et détaille la conception de l'environnement Gymnasium. La section~3 décrit
+l'agent et l'algorithme génétique. La section~4 expose le protocole expérimental.
+La section~5 présente et discute les résultats. La section~6 conclut.
 
-% ======================= 2. PROBLEME ET ENVIRONNEMENT ======================= %
-\section{Problème et environnement}
+% ======================= 2. LE JEU COMME SYSTEME INTERACTIF ======================= %
+\section{Le jeu comme système interactif et environnement Gymnasium}
+
+Avant d'aborder l'agent, nous modélisons rigoureusement le jeu lui-même. Un jeu
+vidéo est un \textbf{système numérique interactif} dans lequel un ou plusieurs
+agents effectuent des actions qui modifient un monde simulé régi par des règles,
+le système renvoyant un \emph{feedback} (visuel, score) orienté vers un objectif.
+Concevoir le Sujet~2 revient donc d'abord à construire ce système — sa boucle, son
+état, ses règles, son rendu — puis à y brancher un agent. Cette section suit cette
+logique d'ingénierie du jeu.
+
+\subsection{Snake vu comme système interactif}
+On peut décomposer notre jeu selon les cinq éléments incontournables d'un système
+interactif :
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Élément} & \textbf{Réalisation dans le projet} \\
+\midrule
+Agent          & Le serpent, piloté par une politique (réseau de neurones évolué). \\
+Environnement  & Grille $12\times12$, obstacles fixes, nourriture, corps du serpent. \\
+Actions        & Tout droit / tourner à droite / tourner à gauche (espace discret). \\
+Règles         & Déplacement case par case, collisions, ingestion, faim, victoire. \\
+Feedback       & Observation, récompense numérique, rendu (texte ANSI ou Pygame). \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent En résumé : \emph{état} = position du serpent, des obstacles et de la
+nourriture ; \emph{action} = changement de direction ; \emph{règle} = collision
+mur/corps ; \emph{objectif} = score (nourriture mangée).
 
 \subsection{Description du jeu}
 Le serpent évolue sur une grille carrée de $N \times N$ cases ($N=12$ dans nos
@@ -151,28 +182,100 @@ pas de temps, l'agent choisit une action ; le serpent avance, et :
         faim}, l'épisode se termine (famine).
 \end{itemize}
 
-\subsection{Grille dynamique}
-La spécificité du Sujet~2 est que les conditions varient \emph{selon les
-épisodes}. À chaque \texttt{reset}, l'environnement tire aléatoirement :
-\begin{itemize}[nosep]
-  \item le nombre d'obstacles fixes, dans l'intervalle $[3, 10]$ ;
-  \item le budget de faim, à $\pm 20\%$ de sa valeur de base $N^2$.
-\end{itemize}
-Les obstacles sont placés aléatoirement sur la grille (en évitant le corps initial
-du serpent et la zone immédiatement devant sa tête). Cette variabilité empêche
-l'agent de mémoriser une carte fixe et l'oblige à apprendre une \emph{politique
-générale} robuste à la configuration.
+\subsection{Architecture « Entrées -- Traitement -- Sorties »}
+L'environnement suit le modèle fonctionnel classique d'un moteur de jeu : il
+\emph{reçoit} une entrée (l'action de l'agent), \emph{traite} cette entrée (mise à
+jour de l'état selon les règles et la physique du déplacement), puis \emph{produit}
+des sorties (nouvel état perçu, récompense, rendu). Le tableau ci-dessous situe nos
+modules de code par rapport aux composants d'un moteur de jeu généraliste.
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Composant moteur} & \textbf{Rôle} & \textbf{Implémentation (\texttt{snake\_evo})} \\
+\midrule
+Gestion du monde & Carte, entités, état & \texttt{SnakeEnv.reset} (serpent, obstacles, nourriture) \\
+Physique / mouvement & Déplacement, avance & \texttt{SnakeEnv.step} (insertion tête / retrait queue) \\
+Collisions & Détection des contacts & \texttt{\_is\_collision} (murs, obstacles, corps) \\
+Règles / scoring & Manger, faim, victoire & logique de \texttt{step} + calcul de récompense \\
+Perception (IA) & Observation $\to$ décision & \texttt{\_get\_obs} + \texttt{MLPPolicy} \\
+Rendu & Sortie perceptive & \texttt{render} (ANSI) / \texttt{render\_pygame} \\
+\bottomrule
+\end{tabular}
+\end{center}
+Visuellement, l'interaction se résume au cycle fermé \emph{entrée $\to$ traitement
+$\to$ sortie} de la figure~\ref{fig:loop} : l'agent fournit une action, le moteur
+(\texttt{step}) met à jour l'état selon les règles, et renvoie l'observation et la
+récompense, qui nourrissent la décision suivante.
 
-\subsection{Espace d'actions}
-L'espace d'actions est \textbf{discret} et contient 3~actions \emph{relatives}
-au serpent : aller \emph{tout droit}, \emph{tourner à droite}, \emph{tourner à
-gauche}. Ce choix, plus simple qu'un espace absolu à 4~directions, élimine
-mécaniquement les demi-tours suicidaires et réduit la dimension du problème,
-conformément au cadrage « espace d'actions discret simple » imposé par l'énoncé.
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  >=Stealth,
+  box/.style={draw, rounded corners, align=center, minimum width=3.2cm,
+              minimum height=1.2cm, fill=grisf}
+]
+\node[box] (agent) {\textbf{Agent}\\ politique $\pi$};
+\node[box, right=4cm of agent] (env) {\textbf{Environnement}\\ \texttt{SnakeEnv.step}\\ (traitement)};
+\draw[->, thick] ([yshift=5pt]agent.east) -- ([yshift=5pt]env.west)
+      node[midway, above, font=\footnotesize] {Entrée : action $a_t$};
+\draw[->, thick] ([yshift=-5pt]env.west) -- ([yshift=-5pt]agent.east)
+      node[midway, below, font=\footnotesize] {Sortie : obs.\ $o_{t+1}$, récompense $r_t$};
+\end{tikzpicture}
+\caption{Boucle d'interaction agent--environnement (modèle Entrées $\to$ Traitement
+$\to$ Sorties). Le rendu est une sortie supplémentaire, découplée de la simulation.}
+\label{fig:loop}
+\end{figure}
 
-\subsection{Espace d'observations}
-L'observation est un vecteur compact de \textbf{11~composantes} à valeurs dans
-$[-1,1]$, adapté à un contrôleur de type réseau de neurones :
+On notera que le \textbf{rendu est volontairement découplé} de la simulation : le
+renderer Pygame se contente de lire l'état public de l'environnement. Le « rendu »
+n'est pas la simulation, c'est sa représentation ; on peut donc entraîner sans
+aucun affichage (mode rapide) puis rejouer une partie graphiquement à l'identique
+(figure~\ref{fig:pygame}).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.62\linewidth]{demo_pygame.png}
+\caption{Sortie perceptive (\emph{feedback}) : fenêtre Pygame de démonstration.
+Serpent en dégradé (tête mise en évidence), nourriture, obstacles, et panneau
+d'information en direct (score, pas, longueur, obstacles).}
+\label{fig:pygame}
+\end{figure}
+
+\subsection{Boucle de jeu et discrétisation du temps}
+Le jeu est un système dynamique exécuté par \textbf{itérations}. Le temps est
+\emph{échantillonné en pas discrets} $t_0, t_1, \dots$ et l'état évolue selon une
+dynamique de transition
+\[
+s_{t+1} = f(s_t, a_t),
+\]
+où $s_t$ est l'état courant et $a_t$ l'action. \textbf{Chaque appel à \texttt{step}
+constitue le pas de temps discret} $t \to t+1$ : la discrétisation du temps est donc
+bien présente, simplement \emph{de durée non physique}. Le jeu étant \emph{au tour
+par tour} (et non en temps réel), il n'y a pas de pas de temps physique $\Delta t$
+variable ni de budget de \textit{frame} à respecter : une transition par décision.
+La boucle d'interaction agent–environnement s'écrit :
+\begin{lstlisting}[language=Python]
+obs, info = env.reset(seed=...)          # Input initial : etat de depart
+done = False
+while not done:                          # Boucle de jeu (par tour)
+    action = agent.act(obs)              #   Decision : observation -> action
+    obs, reward, terminated, truncated, info = env.step(action)  # Update + regles
+    done = terminated or truncated       #   Condition d'arret
+\end{lstlisting}
+Ce schéma correspond au cycle \emph{Perception $\to$ Décision $\to$ Action} (PDA) :
+l'agent \emph{observe} ($\texttt{obs}$), \emph{décide} ($\texttt{act}$), puis le
+moteur \emph{met à jour} l'état et renvoie le \emph{feedback}.
+
+\subsection{État global et observation locale ($o = \varphi(s)$)}
+Il faut distinguer l'\textbf{état} et l'\textbf{observation}, conformément au cadre
+du cours. L'\emph{état global} $s_t$ contient toute l'information nécessaire à la
+simulation : positions de \emph{tout} le corps du serpent, direction courante,
+ensemble des obstacles, position de la nourriture, compteur de faim et score.
+L'\emph{observation} $o_t = \varphi(s_t)$ est seulement ce que l'agent perçoit : un
+vecteur compact de \textbf{11~composantes}. Ce sont en pratique des
+\emph{indicateurs binaires} à valeurs dans $\{0,1\}$ (l'espace est néanmoins déclaré
+\texttt{Box}$(-1,1)$ pour la conformité Gymnasium et une éventuelle extension), ce
+qui en fait une entrée idéale pour un contrôleur de type réseau de neurones.
 \begin{center}
 \begin{tabular}{cl}
 \toprule
@@ -184,12 +287,50 @@ $[-1,1]$, adapté à un contrôleur de type réseau de neurones :
 \bottomrule
 \end{tabular}
 \end{center}
-Cette représentation \emph{égocentrique} (« qu'est-ce qui est dangereux autour de
-moi, où est la nourriture ») est volontairement locale : elle généralise bien et
-maintient une dimension d'entrée faible.
+La fonction de perception $\varphi$ est donc une \emph{compression} de l'état global
+en une représentation \textbf{égocentrique et locale} (« qu'est-ce qui est dangereux
+autour de moi, où est la nourriture ? »). Ce choix de conception a trois vertus :
+réduire la dimension d'entrée de la décision, favoriser la \emph{généralisation}
+(l'agent ne mémorise pas une carte précise), et rendre le problème
+\emph{partiellement observable} de façon réaliste — l'agent ne « voit » pas
+l'intégralité de la grille, exactement comme une IA de jeu dotée d'un champ de
+perception limité. Le revers (analysé en section~5) est que cette myopie empêche
+d'anticiper les pièges à plusieurs cases.
 
-\subsection{Fonction de récompense}
-La récompense par pas combine un objectif principal et un \emph{shaping} léger :
+\subsection{Espace d'actions}
+L'espace d'actions est \textbf{discret} et contient 3~actions \emph{relatives}
+au serpent : aller \emph{tout droit}, \emph{tourner à droite}, \emph{tourner à
+gauche}. Un bon espace d'action doit être \emph{expressif} (permettre les
+comportements voulus), \emph{contrôlable} (éviter l'explosion combinatoire),
+\emph{aligné} avec la dynamique, et \emph{stable}. Notre choix relatif à 3~actions
+satisfait ces critères : plus simple qu'un espace absolu à 4~directions, il
+\textbf{élimine mécaniquement les demi-tours suicidaires} (impossibles à exprimer)
+et réduit la dimension du problème, conformément au cadrage « espace d'actions
+discret simple » imposé par l'énoncé.
+
+\subsection{Règles, transition et dynamique}
+Les \textbf{règles} définissent ce que « fait » la fonction de transition $f$ :
+les effets des actions, les interactions (collisions), et les conditions d'arrêt.
+Concrètement, à chaque \texttt{step}, le moteur : (i)~tourne la direction selon
+l'action, (ii)~calcule la nouvelle tête, (iii)~teste la collision (mur, obstacle,
+corps), (iv)~gère l'ingestion (croissance + nouvelle nourriture) ou l'avance
+simple (retrait de la queue), (v)~vérifie la faim et la victoire.
+
+Concernant la nature de la dynamique : la transition est \textbf{déterministe}
+\emph{à l'intérieur d'un épisode} — pour un même état et une même action, le
+résultat est toujours identique, ce qui garantit la reproductibilité de
+l'évaluation, $P(s_{t+1}\mid s_t, a_t) \in \{0,1\}$. La \textbf{stochasticité} est
+injectée uniquement au \texttt{reset} (placement aléatoire des obstacles et de la
+nourriture, tirage du nombre d'obstacles), via un générateur aléatoire ensemencé
+par une graine. Cette séparation est un choix d'ingénierie important : elle permet
+un aléa \emph{contrôlé} et \emph{rejouable} (deux épisodes de même graine sont
+identiques au pixel près), indispensable pour comparer équitablement les agents.
+
+\subsection{Objectifs et fonction de récompense}
+L'\textbf{objectif} du jeu est de maximiser le score (nourriture mangée) tout en
+survivant. La \textbf{récompense} $r_t = R(s_t, a_t, s_{t+1})$ est un signal
+numérique qui mesure la qualité d'un comportement ; elle combine ici l'objectif
+principal et un \emph{shaping} léger :
 \[
 r =
 \begin{cases}
@@ -198,21 +339,58 @@ r =
 -0.5 & \text{en cas de famine}, \\
 +0.1 & \text{si l'agent se rapproche de la nourriture}, \\
 -0.15 & \text{s'il s'en éloigne}, \\
--0.01 & \text{coût de temps par pas.}
+-0.01 & \text{coût de temps par pas},
 \end{cases}
 \]
-Le \emph{shaping} de distance accélère l'évolution en fournissant un signal dense,
-tandis que le faible coût de temps décourage les comportements de bouclage
-stérile. La victoire (grille entièrement remplie) octroie un bonus de $+5$.
+la victoire (grille entièrement remplie) octroyant un bonus de $+5$. Le
+\emph{shaping} de distance accélère l'apprentissage en fournissant un signal dense
+plutôt qu'une récompense éparse.
 
-\subsection{Conditions de fin d'épisode}
-Un épisode se termine (\texttt{terminated}) en cas de collision, de famine ou de
-victoire. Une troncature (\texttt{truncated}) intervient au-delà d'un nombre
-maximal de pas fixé par le protocole. L'environnement respecte ainsi la
-signature Gymnasium \texttt{(obs, reward, terminated, truncated, info)}.
+\paragraph{Le piège de la récompense « trichable ».} Un principe de conception
+central est qu'il faut \emph{récompenser ce que l'on veut réellement obtenir}, et
+non un indicateur ambigu. Deux écueils nous menaçaient : récompenser la seule
+survie inciterait au \emph{camping} (l'agent ne fait rien d'utile), et récompenser
+la seule proximité à la nourriture inciterait à \emph{tourner en rond} près
+d'elle. Nous mitigeons ces dérives par le faible \textbf{coût de temps} par pas
+(qui pénalise les boucles stériles) et surtout par la \textbf{domination du score}
+($\times 100$) dans la fitness évolutionnaire (section~3.3), de sorte que la survie
+ne soit qu'un bonus secondaire.
+
+\subsection{Conditions de fin et conformité à l'API Gymnasium}
+L'environnement implémente strictement l'API \texttt{gymnasium.Env}. L'espace
+d'actions est déclaré \texttt{spaces.Discrete(3)} et l'espace d'observations
+\texttt{spaces.Box(-1, 1, shape=(11,))}. La méthode \texttt{step} renvoie le
+quintuplet standard \texttt{(obs, reward, terminated, truncated, info)} : un épisode
+se \emph{termine} (\texttt{terminated}) en cas de collision, de famine ou de
+victoire ; il est \emph{tronqué} (\texttt{truncated}) au-delà d'un nombre maximal de
+pas fixé par le protocole. Le dictionnaire \texttt{info} expose des variables d'état
+utiles (score, nombre d'obstacles, cause de fin) pour l'analyse, sans servir à la
+décision. Cette conformité garantit que l'environnement est interchangeable avec
+n'importe quel outil de l'écosystème Gymnasium.
+
+\subsection{Grille dynamique}
+La spécificité du Sujet~2 est que les conditions varient \emph{selon les
+épisodes}. À chaque \texttt{reset}, l'environnement tire aléatoirement :
+\begin{itemize}[nosep]
+  \item le nombre d'obstacles fixes, dans l'intervalle $[3, 10]$ ;
+  \item le budget de faim, à $\pm 20\%$ de sa valeur de base $N^2$.
+\end{itemize}
+Les obstacles sont placés aléatoirement sur la grille (en évitant le corps initial
+du serpent et la zone immédiatement devant sa tête). Cette variabilité empêche
+l'agent de mémoriser une carte fixe et l'oblige à apprendre une \emph{politique
+générale} robuste à la configuration — c'est l'incertitude événementielle qui
+distingue un vrai jeu d'un simple programme déterministe.
 
 % ======================= 3. AGENT ET ALGORITHME GENETIQUE ======================= %
 \section{Agent et algorithme génétique}
+
+Dans la taxonomie des agents de jeu (scripté $\to$ réactif $\to$ délibératif $\to$
+adaptatif $\to$ \textbf{évolutif/apprenant}), notre agent se situe à l'extrémité
+\emph{évolutive} : sa politique n'est pas codée à la main mais \emph{optimisée
+hors ligne} par recherche évolutionnaire. Il s'oppose ainsi directement à notre
+baseline \emph{réactive} (l'heuristique, à base de règles \texttt{si/alors}). Cette
+section décrit la politique (le contrôleur $\pi$), son génome, et l'algorithme qui
+le fait évoluer.
 
 \subsection{Politique : réseau de neurones}
 La politique de l'agent est un \textbf{perceptron multicouche} (MLP) :
@@ -235,10 +413,10 @@ réseau :
 continu de dimension 243.
 
 \subsection{Fonction de fitness}
-La fitness d'un génome est évaluée sur plusieurs épisodes (graines fixées au sein
+La fitness d'un génome est évaluée sur \textbf{6~épisodes} (graines fixées au sein
 d'une même génération, pour une comparaison équitable). En notant $\bar s$ le
-score moyen (nourriture mangée), $\bar t$ le nombre de pas moyen et $\bar R$ la
-récompense cumulée moyenne :
+score \emph{moyen sur ces 6~épisodes} (nourriture mangée), $\bar t$ le nombre de
+pas moyen et $\bar R$ la récompense cumulée moyenne :
 \[
 \text{fitness} = 100\,\bar s + 0.5\,\bar t + \bar R.
 \]
@@ -333,6 +511,10 @@ La figure~\ref{fig:evo} montre l'évolution de la fitness et du score au fil des
 passe d'environ $0.3$ à la première génération à des pics dépassant $13$ en fin
 d'évolution, tandis que le score moyen de la population croît de façon régulière
 de $\approx 0$ à $\approx 6$. La meilleure fitness atteinte est de~$1707.7$.
+L'entraînement complet (150~générations, population de 150 individus) ne demande
+que \textbf{$\approx 400$~s sur un simple CPU} (sans GPU) --- un atout pratique
+majeur de la neuroévolution, dont l'évaluation se parallélise trivialement et ne
+nécessite ni rétropropagation ni accélérateur matériel.
 Le bruit résiduel des courbes provient du renouvellement des graines d'évaluation
 à chaque génération (chaque génération affronte des cartes différentes), ce qui
 constitue une mesure de généralisation plutôt que de surapprentissage.
@@ -360,7 +542,7 @@ $[900000,900199]$).}
 & \textbf{Survie moy.} & \textbf{Taux succès} \\
 \midrule
 Aléatoire           & 0.09  & 0.30 & 2  & 15.4  & 8.5\,\% \\
-AG (neuroévolution) & \textbf{6.30}  & 6.20 & 25 & \textbf{172.8} & 91.5\,\% \\
+AG (neuroévolution) & \textbf{6.29}  & 6.20 & 25 & \textbf{172.8} & 91.5\,\% \\
 Heuristique (réf.)  & 15.97 & 6.96 & 36 & 153.1 & 100\,\% \\
 \bottomrule
 \end{tabular}
@@ -375,14 +557,14 @@ Heuristique (réf.)  & 15.97 & 6.96 & 36 & 153.1 & 100\,\% \\
 \end{figure}
 
 \paragraph{Interprétation.} L'agent neuroévolutionnaire améliore le score moyen
-d'un facteur~$\sim70$ par rapport à l'agent aléatoire ($6.30$ contre $0.09$),
+d'un facteur~$\sim70$ par rapport à l'agent aléatoire ($6.29$ contre $0.09$),
 ce qui démontre sans ambiguïté que l'évolution a découvert une politique
 compétente \emph{à partir de poids aléatoires}, sans aucune connaissance
 programmée du jeu. Fait notable, l'agent AG \textbf{survit en moyenne plus
 longtemps} que l'heuristique ($172.8$ pas contre $153.1$) : il a appris une
 gestion prudente de l'espace. Il atteint un score maximal de~$25$ sur une partie.
 
-En revanche, l'AG reste \emph{en deçà} de l'heuristique en score moyen ($6.30$
+En revanche, l'AG reste \emph{en deçà} de l'heuristique en score moyen ($6.29$
 contre $15.97$). Ce résultat est attendu et instructif : l'heuristique bénéficie
 d'une logique d'évitement de danger \emph{codée à la main} et toujours optimale
 localement, que l'AG doit au contraire \emph{découvrir} dans un espace de 243
@@ -410,6 +592,23 @@ de l'AG chute cependant rapidement avec la densité d'obstacles ($9.6$ à 4
 obstacles, $2.5$ à 12), beaucoup plus vite que l'heuristique. L'écart global
 constaté précédemment s'explique donc essentiellement par une \textbf{gestion
 sous-optimale des obstacles}, et non par une mauvaise recherche de nourriture.
+Le tableau~\ref{tab:rob} détaille ces scores moyens (figure~\ref{fig:rob}).
+
+\begin{table}[h]
+\centering
+\caption{Score moyen selon le nombre d'obstacles fixés (grille statique
+$12\times12$, 60~épisodes par niveau).}
+\label{tab:rob}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Agent} & \textbf{0 obst.} & \textbf{4 obst.} & \textbf{8 obst.} & \textbf{12 obst.} \\
+\midrule
+Aléatoire           & 0.18           & 0.07          & 0.12          & 0.07 \\
+AG (neuroévolution) & \textbf{18.93} & 9.60          & 4.42          & 2.52 \\
+Heuristique (réf.)  & 19.85          & \textbf{18.73}& \textbf{15.38}& \textbf{11.62} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[h]
 \centering
